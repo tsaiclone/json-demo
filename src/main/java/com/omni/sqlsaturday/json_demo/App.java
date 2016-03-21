@@ -10,10 +10,10 @@ import java.nio.file.StandardOpenOption;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.text.WordUtils;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
@@ -25,14 +25,17 @@ import org.json.simple.parser.JSONParser;
  * Output SQL Server insert statements for random users.
  */
 public class App {
-	private static final String URL_RANDOMUSER = "https://randomuser.me/api/";
+	private static final String URL_RANDOMUSER = "https://randomuser.me/api/?nat=us";
+	private static final String URL_STRIPE = "https://api.stripe.com/v1/charges";
 	private static final String UTF8 = "UTF-8";
 	private static final Charset UTF8_CH = Charset.forName(UTF8);
+	private static final String LINE_BREAK = "\n";
 	private static final String SQL_INSERT_USER_ACCOUNT =
 			"INSERT INTO dbo.user_account(stripe_id, username, first_name, last_name, display_name, address1, address2, city, state, zip, image_url)"
-			+ " VALUES (...);";
-	//INSERT INTO dbo.stripe_log (request_date, request, response_date, response) VALUES(NOW(), ...);
-	
+			+ " VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s');";
+	private static final String SQL_INSERT_STRIPE_LOG =
+			"INSERT INTO dbo.stripe_log(request_date, request, response_date, response)"
+			+ " VALUES (NOW(), '%s', NOW(), '%s');";
 	
     public static void main( String[] args ) throws IOException {
     	//parse arguments
@@ -46,21 +49,41 @@ public class App {
         
         //create file for output
         String currentTimestamp = new SimpleDateFormat("yyyy-MM-dd-hh-mm").format(new Date());
-        String outputFileName = "random-users_" + currentTimestamp + "_" + amountOfUsersToCreate + ".txt";
-        Path outputFilePath = Paths.get("", outputFileName);
+        String outputFileName = "random-users_" + currentTimestamp + "_" + amountOfUsersToCreate + ".sql";
+        Path outputFilePath = Paths.get("sql", outputFileName);
 
         try (BufferedWriter writer = Files.newBufferedWriter(outputFilePath, UTF8_CH, StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
         	for (int i=0; i < amountOfUsersToCreate; i++) {
 	        	//create random user
         			//http request to randomuser
+        		JSONObject userJson = httpRandomuser();
 	        
-	        	//call to stripe
-	        		//capture JSON of request
+	        	//call to stripe to create charge
+	        		//TODO capture JSON of request
+        		JSONObject stripeRequest = null;
 			        //http request to stripe
+        		JSONObject stripeResponse = httpStripe(userJson);
+        		
+        		//use JSONObjects to create inserts to output
 	        		//use JSON response from randomuser and strip to create user_account insert
+        		String userAccountInsert = createUserAccountInsert(userJson, stripeResponse);
 	        		//output user_account insert
-		        	//use JSON request and response to create strip_log insert (add status property to JSON response)
-	        		//output strip_log insert
+        		if (StringUtils.isEmpty(userAccountInsert)) {
+        			System.out.println("ERROR: No user_account insert generated for user index " + i);
+        			continue;
+        		} else {
+        			writer.write(userAccountInsert + LINE_BREAK);
+        		}
+        		
+        			//use JSON request and response to create stripe_log insert (add status property to JSON response)
+        		String stripeLogInsert = createStripeLogInsert(stripeRequest, stripeResponse);
+        			//output strip_log insert
+        		if (StringUtils.isEmpty(stripeLogInsert)) {
+        			System.out.println("ERROR: No stripe_log insert generated for user index " + i);
+        			continue;
+        		} else {
+        			writer.write(stripeLogInsert + LINE_BREAK);
+        		}
         	}
         
 	        System.out.println("Finished " + amountOfUsersToCreate + " random users to " + outputFileName);
@@ -80,8 +103,6 @@ public class App {
                 JSONParser parser = new JSONParser();
                 Object resultObject = parser.parse(json);
                 return (JSONObject)resultObject;
-//                    System.out.println(obj.get("example"));
-//                    System.out.println(obj.get("fr"));
             } catch (Exception e) {
             	e.printStackTrace();
             }
@@ -92,14 +113,60 @@ public class App {
         return null;
     }
     
-    private static String createUserAccountInsert(JSONObject userJson) {
-    	if (userJson == null) {
+    private static JSONObject httpStripe(JSONObject userJson) {
+//        try (CloseableHttpClient httpClient = HttpClientBuilder.create().build()) {
+//        	HttpPost request = new HttpPost(URL_STRIPE);
+//            request.addHeader("content-type", "application/json");
+//            HttpResponse result = httpClient.execute(request);
+//
+//            String json = EntityUtils.toString(result.getEntity(), UTF8);
+//            try {
+//                JSONParser parser = new JSONParser();
+//                Object resultObject = parser.parse(json);
+//                //TODO insert status property into JSONObject
+//                return (JSONObject)resultObject;
+//            } catch (Exception e) {
+//            	e.printStackTrace();
+//            }
+//
+//        } catch (IOException ex) {
+//        	ex.printStackTrace();
+//        }
+        return null;
+    }
+
+    private static String createUserAccountInsert(JSONObject userJson, JSONObject stripeResponse) {
+    	if (userJson == null || stripeResponse == null) {
     		return null;
     	}
     	
-    	String insert = null;
+    	JSONArray results = (JSONArray)userJson.get("results");
+    	JSONObject user = (JSONObject)((JSONObject)results.get(0)).get("user");
+    	JSONObject name = (JSONObject)user.get("name");
+    	JSONObject location = (JSONObject)user.get("location");
+    	JSONObject picture = (JSONObject)user.get("picture");
     	
+    	String stripe_id = (String)stripeResponse.get("id");
+    	String username = (String)user.get("username");
+    	String first_name = WordUtils.capitalize((String)name.get("first"));
+    	String last_name = WordUtils.capitalize((String)name.get("last"));
+    	String display_name = WordUtils.capitalize((String)name.get("title")) + ". " + first_name + " " + last_name;
+    	String address1 = WordUtils.capitalize((String)location.get("street"));
+    	String address2 = "";
+    	String city = WordUtils.capitalize((String)location.get("city"));
+    	String state = (String)location.get("state");
+    	String zip = String.format("%05d", (Long)location.get("zip"));
+    	String image_url = (String)picture.get("medium");
     	
-    	return insert;
+    	return String.format(SQL_INSERT_USER_ACCOUNT,
+    			stripe_id, username, first_name, last_name, display_name, address1, address2, city, state, zip, image_url);
+    }
+    
+    private static String createStripeLogInsert(JSONObject stripeRequest, JSONObject stripeResponse) {
+    	if (stripeRequest == null || stripeResponse == null) {
+    		return null;
+    	}
+    	
+    	return String.format(SQL_INSERT_STRIPE_LOG, stripeRequest.toJSONString(), stripeResponse.toJSONString());
     }
 }
