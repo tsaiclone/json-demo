@@ -8,16 +8,24 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
 
 import org.apache.http.HttpResponse;
+import org.apache.http.auth.AuthScope;
+import org.apache.http.auth.UsernamePasswordCredentials;
+import org.apache.http.client.CredentialsProvider;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
-import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 
@@ -32,7 +40,8 @@ public class App {
 			"INSERT INTO dbo.user_account(stripe_id, username, first_name, last_name, display_name, address1, address2, city, state, zip, image_url)"
 			+ " VALUES (...);";
 	//INSERT INTO dbo.stripe_log (request_date, request, response_date, response) VALUES(NOW(), ...);
-	
+	private final String STRIPE_PUBLIC_KEY = "sk_test_RxszT1p17bDnzd6CQPwM3Q8J ";
+	private final String STRIPE_CHARGE_URL = "https://api.stripe.com/v1/charges";
 	
     public static void main( String[] args ) throws IOException {
     	//parse arguments
@@ -102,4 +111,46 @@ public class App {
     	
     	return insert;
     }
+    
+    
+    /**
+     * Converts the given <code>customer</code> into a StripeCharge and POSTs it to Stripe
+     * @param customer
+     * @return the charge object created by Stripe in response to the charge request, or a Stripe error object if an error card number was used
+     */
+    private JSONObject chargeCard(JSONObject customer) {
+    	HttpPost request = new HttpPost(STRIPE_CHARGE_URL);
+    	request.addHeader("Content-Type", "application/json");
+    	
+    	CredentialsProvider credsProvider = new BasicCredentialsProvider();
+        credsProvider.setCredentials(
+        		AuthScope.ANY,
+                new UsernamePasswordCredentials(STRIPE_PUBLIC_KEY, null));
+        CloseableHttpClient httpClient = HttpClientBuilder.create()
+                .setDefaultCredentialsProvider(credsProvider)
+                .build();
+
+        StripeCharge charge = new StripeCharge(customer);
+    	try {
+    		StringEntity params = new StringEntity(charge.toJSONString());
+    		request.setEntity(params);
+    		
+            HttpResponse result = httpClient.execute(request);
+            int httpStatus = result.getStatusLine().getStatusCode();
+
+            String json = EntityUtils.toString(result.getEntity(), UTF8);
+            try {
+                JSONParser parser = new JSONParser();
+                JSONObject resultObject = (JSONObject)parser.parse(json);
+                resultObject.put("httpStatus", httpStatus);
+                return resultObject;
+            } catch (Exception e) {
+            	e.printStackTrace();
+            }
+        } catch (IOException ex) {
+        	ex.printStackTrace();
+        }
+    	return null;
+    }
+    
 }
