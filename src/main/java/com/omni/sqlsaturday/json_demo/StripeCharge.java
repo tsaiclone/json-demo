@@ -14,18 +14,21 @@ public class StripeCharge extends JSONObject {
 
 	@SuppressWarnings("unchecked")
 	public StripeCharge(JSONObject customer) {
-		String firstName = ((JSONObject)((JSONObject)customer.get("user")).get("name")).get("first").toString();
-    	String lastName = ((JSONObject)((JSONObject)customer.get("user")).get("name")).get("last").toString();
-    	String address1 = ((JSONObject)((JSONObject)customer.get("user")).get("location")).get("street").toString();
-    	String city = ((JSONObject)((JSONObject)customer.get("user")).get("location")).get("city").toString();
-    	String state = ((JSONObject)((JSONObject)customer.get("user")).get("location")).get("state").toString();
-    	String zip = ((JSONObject)((JSONObject)customer.get("user")).get("location")).get("zip").toString();
+		JSONObject user = (JSONObject)customer.get("user");
+		String firstName = ((JSONObject)user.get("name")).get("first").toString();
+    	String lastName = ((JSONObject)user.get("name")).get("last").toString();
+    	String address1 = ((JSONObject)user.get("location")).get("street").toString();
+    	String city = ((JSONObject)user.get("location")).get("city").toString();
+    	String state = ((JSONObject)user.get("location")).get("state").toString();
+    	String zip = ((JSONObject)user.get("location")).get("zip").toString();
 //    	String imageUrl = ((JSONObject)((JSONObject)customer.get("user")).get("picture")).get("medium").toString();
+    	String username = user.get("username").toString();
     	
 		put("amount", getRandomBetween(1, Integer.MAX_VALUE)); // in pennies
 		put("currency", "USD");
 		put("description", "Payment for " + firstName + " " + lastName);
 		put("statement_descriptor", "Monthly payment for " + firstName + " " + lastName);
+		put("username", username);
 		
 		JSONObject source = new JSONObject();
 		source.put("name", firstName + " " + lastName);
