@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+import org.apache.commons.lang3.text.WordUtils;
 import org.json.simple.JSONObject;
 
 public class StripeCharge extends JSONObject {
@@ -13,8 +14,7 @@ public class StripeCharge extends JSONObject {
 	private final Random random = new Random();
 
 	@SuppressWarnings("unchecked")
-	public StripeCharge(JSONObject customer) {
-		JSONObject user = (JSONObject)customer.get("user");
+	public StripeCharge(JSONObject user) {
 		String firstName = ((JSONObject)user.get("name")).get("first").toString();
     	String lastName = ((JSONObject)user.get("name")).get("last").toString();
     	String address1 = ((JSONObject)user.get("location")).get("street").toString();
@@ -22,13 +22,15 @@ public class StripeCharge extends JSONObject {
     	String state = ((JSONObject)user.get("location")).get("state").toString();
     	String zip = ((JSONObject)user.get("location")).get("zip").toString();
 //    	String imageUrl = ((JSONObject)((JSONObject)customer.get("user")).get("picture")).get("medium").toString();
-    	String username = user.get("username").toString();
+    	put("username", user.get("username"));
     	
-		put("amount", getRandomBetween(1, Integer.MAX_VALUE)); // in pennies
+//    	firstName = WordUtils.capitalize(firstName);
+//    	lastName = WordUtils.capitalize(lastName);
+    	
+		put("amount", getRandomBetween(1, 99999900)); // in pennies
 		put("currency", "USD");
 		put("description", "Payment for " + firstName + " " + lastName);
-		put("statement_descriptor", "Monthly payment for " + firstName + " " + lastName);
-		put("username", username);
+		put("statement_descriptor", "Monthly pmt");
 		
 		JSONObject source = new JSONObject();
 		source.put("name", firstName + " " + lastName);
@@ -44,6 +46,7 @@ public class StripeCharge extends JSONObject {
     	source.put("address_country", "USA");
     		
 		put("source", source);
+		System.out.println("StripeCharge: " + this.toJSONString());
 	}
 	
 	private Integer getRandomBetween(Integer min, Integer max) {

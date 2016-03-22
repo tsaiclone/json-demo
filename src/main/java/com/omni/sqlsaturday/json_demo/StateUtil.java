@@ -34,7 +34,7 @@ public class StateUtil {
 			stateMap.put("mississippi", "MS");
 			stateMap.put("missouri", "MO");
 			stateMap.put("montana", "MT");
-			stateMap.put(",ebraska", "NE");
+			stateMap.put("nebraska", "NE");
 			stateMap.put("nevada", "NV");
 			stateMap.put("new hampshire", "NH");
 			stateMap.put("new jersey", "NJ");
@@ -46,7 +46,7 @@ public class StateUtil {
 			stateMap.put("oklahoma", "OK");
 			stateMap.put("oregon", "OR");
 			stateMap.put("pennsylvania", "PA");
-			stateMap.put("rhode Island", "RI");
+			stateMap.put("rhode island", "RI");
 			stateMap.put("south carolina", "SC");
 			stateMap.put("south dakota", "SD");
 			stateMap.put("tennessee", "TN");
@@ -59,6 +59,6 @@ public class StateUtil {
 			stateMap.put("wisconsin", "WI");
 			stateMap.put("wyoming", "WY");
 		}
-		return stateMap.get(stateName).toLowerCase();
+		return stateMap.get(stateName.toLowerCase());
 	}
 }

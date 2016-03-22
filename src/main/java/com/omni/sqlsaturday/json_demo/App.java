@@ -9,6 +9,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.Map;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.text.WordUtils;
@@ -31,8 +32,9 @@ import org.json.simple.parser.JSONParser;
  * Output SQL Server insert statements for random users.
  */
 public class App {
-	private static final String URL_RANDOMUSER = "https://randomuser.me/api/?nat=us";
-	private static final String URL_STRIPE = "https://api.stripe.com/v1/charges";
+	private static final String URL_RANDOMUSER = "https://randomuser.me/api/?nat=us&results=%d";
+	private static final String STRIPE_PUBLIC_KEY = "sk_test_RxszT1p17bDnzd6CQPwM3Q8J";
+	private static final String STRIPE_CHARGE_URL = "https://api.stripe.com/v1/charges";
 	private static final String UTF8 = "UTF-8";
 	private static final Charset UTF8_CH = Charset.forName(UTF8);
 	private static final String LINE_BREAK = "\n";
@@ -42,13 +44,11 @@ public class App {
 	private static final String SQL_INSERT_STRIPE_LOG =
 			"INSERT INTO dbo.stripe_log(request_date, request, response_date, response)"
 			+ " VALUES (GETDATE(), '%s', GETDATE(), '%s');";
-	private final String STRIPE_PUBLIC_KEY = "sk_test_RxszT1p17bDnzd6CQPwM3Q8J ";
-	private final String STRIPE_CHARGE_URL = "https://api.stripe.com/v1/charges";
 	private Integer amountOfUsersToCreate;
 	
     public static void main( String[] args ) throws IOException {
     	//parse arguments
-    	int amountOfUsersToCreate = 10;
+    	int amountOfUsersToCreate = 1000;
     	if (args != null) {
     		if (args.length >= 1) {
     			amountOfUsersToCreate = Integer.valueOf(args[0]);
@@ -70,23 +70,27 @@ public class App {
         Path outputFilePath = Paths.get("sql", outputFileName);
 
         try (BufferedWriter writer = Files.newBufferedWriter(outputFilePath, UTF8_CH, StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
-        	for (int i=0; i < amountOfUsersToCreate; i++) {
+        	
+        	JSONArray users = httpRandomuser();
+        	for(Object obj: users) {
+        		JSONObject user = (JSONObject)((JSONObject)obj).get("user");
+        		
 	        	//create random user
         			//http request to randomuser
-        		JSONObject userJson = httpRandomuser();
 	        
 	        	/** call to stripe to create charge **/
         		// capture JSON of request
-        		StripeCharge stripeRequest = new StripeCharge(userJson);
+        		StripeCharge stripeRequest = new StripeCharge(user);
 		        // http request to stripe
         		JSONObject stripeResponse = chargeCard(stripeRequest);
+        		stripeRequest.put("username", user.get("username"));
         		
         		//use JSONObjects to create inserts to output
         		//use JSON response from randomuser and strip to create user_account insert
-        		String userAccountInsert = createUserAccountInsert(userJson, stripeResponse);
+        		String userAccountInsert = createUserAccountInsert(user, stripeResponse);
 	        		//output user_account insert
         		if (StringUtils.isEmpty(userAccountInsert)) {
-        			System.out.println("ERROR: No user_account insert generated for user index " + i);
+        			System.out.println("ERROR: No user_account insert generated for user " + user.get("username"));
         			continue;
         		} else {
         			writer.write(userAccountInsert + LINE_BREAK);
@@ -96,7 +100,7 @@ public class App {
         		String stripeLogInsert = createStripeLogInsert(stripeRequest, stripeResponse);
         			//output strip_log insert
         		if (StringUtils.isEmpty(stripeLogInsert)) {
-        			System.out.println("ERROR: No stripe_log insert generated for user index " + i);
+        			System.out.println("ERROR: No stripe_log insert generated for user " + user.get("username"));
         			continue;
         		} else {
         			writer.write(stripeLogInsert + LINE_BREAK);
@@ -109,9 +113,10 @@ public class App {
 		}
     }
     
-    private JSONObject httpRandomuser() {
+    private JSONArray httpRandomuser() {
         try (CloseableHttpClient httpClient = HttpClientBuilder.create().build()) {
-        	HttpGet request = new HttpGet(URL_RANDOMUSER);
+        	String url = String.format(URL_RANDOMUSER, amountOfUsersToCreate);
+        	HttpGet request = new HttpGet(url);
             request.addHeader("content-type", "application/json");
             HttpResponse result = httpClient.execute(request);
 
@@ -119,7 +124,7 @@ public class App {
             try {
                 JSONParser parser = new JSONParser();
                 Object resultObject = parser.parse(json);
-                return (JSONObject)resultObject;
+                return (JSONArray)((JSONObject)resultObject).get("results");
             } catch (Exception e) {
             	e.printStackTrace();
             }
@@ -130,13 +135,11 @@ public class App {
         return null;
     }
     
-    private String createUserAccountInsert(JSONObject userJson, JSONObject stripeResponse) {
-    	if (userJson == null || stripeResponse == null) {
+    private String createUserAccountInsert(JSONObject user, JSONObject stripeResponse) {
+    	if (user == null || stripeResponse == null) {
     		return null;
     	}
     	
-    	JSONArray results = (JSONArray)userJson.get("results");
-    	JSONObject user = (JSONObject)((JSONObject)results.get(0)).get("user");
     	JSONObject name = (JSONObject)user.get("name");
     	JSONObject location = (JSONObject)user.get("location");
     	JSONObject picture = (JSONObject)user.get("picture");
@@ -162,7 +165,7 @@ public class App {
     		return null;
     	}
     	
-    	return String.format(SQL_INSERT_STRIPE_LOG, stripeRequest.toJSONString(), stripeResponse.toJSONString());
+    	return String.format(SQL_INSERT_STRIPE_LOG, stripeRequest.toJSONString().replaceAll("'", "''"), stripeResponse.toJSONString().replaceAll("'", "''"));
     }
     
     
@@ -171,9 +174,10 @@ public class App {
      * @param customer
      * @return the charge object created by Stripe in response to the charge request, or a Stripe error object if an error card number was used
      */
-    private JSONObject chargeCard(StripeCharge charge) {
+    @SuppressWarnings("unchecked")
+	private JSONObject chargeCard(StripeCharge charge) {
     	HttpPost request = new HttpPost(STRIPE_CHARGE_URL);
-    	request.addHeader("Content-Type", "application/json");
+    	request.addHeader("Content-Type", "application/x-www-form-urlencoded");
     	
     	CredentialsProvider credsProvider = new BasicCredentialsProvider();
         credsProvider.setCredentials(
@@ -184,7 +188,11 @@ public class App {
                 .build();
 
     	try {
-    		StringEntity params = new StringEntity(charge.toJSONString());
+    		String username = charge.get("username").toString();
+    		// I am a terrible person
+    		charge.remove("username");
+    		
+    		StringEntity params = new StringEntity(toFormData(charge));
     		request.setEntity(params);
     		
             HttpResponse result = httpClient.execute(request);
@@ -195,7 +203,7 @@ public class App {
                 JSONParser parser = new JSONParser();
                 JSONObject resultObject = (JSONObject)parser.parse(json);
                 resultObject.put("httpStatus", httpStatus);
-                resultObject.put("username", charge.get("username"));
+                resultObject.put("username", username);
                 return resultObject;
             } catch (Exception e) {
             	e.printStackTrace();
@@ -204,6 +212,34 @@ public class App {
         	ex.printStackTrace();
         }
     	return null;
+    }
+    
+    private String toFormData(JSONObject obj) {
+    	String format = "%s=%s&";
+    	String subObjectFormat = "%s[%s]=%s&";
+    	StringBuilder sb = new StringBuilder();
+    	for(Object key: obj.keySet()) {
+    		Object value = obj.get(key);
+    		if(value instanceof Map) {
+    			// This is a sub-object, which has a different syntax
+    			Map map = (Map)value;
+    			for(Object subKey: map.keySet()) {
+    				Object subValue = map.get(subKey);
+    				try {
+    					sb.append(String.format(subObjectFormat, key.toString(), subKey.toString(), subValue.toString()));
+    				} catch(NullPointerException e) {
+    					System.out.println("key: " + key + ", subKey: " + subKey + ", subValue: " + subValue);
+    				}
+    			}
+    		} else {
+    			sb.append(String.format(format, key.toString(), value.toString()));
+    		}
+    	}
+    	
+    	String result = sb.toString();
+    	if(result.endsWith("&")) result = result.substring(0, result.length() - 1);
+    	System.out.println("Form data: " + result);
+    	return result;
     }
     
 }
