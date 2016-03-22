@@ -41,7 +41,7 @@ public class StripeCharge extends JSONObject {
     	source.put("cvc", String.valueOf(getRandomBetween(100, 999)));
     	source.put("address_line1", address1);
     	source.put("address_city", city);
-    	source.put("address_state", StateUtil.getByName(state));
+    	source.put("address_state", state);
     	source.put("address_zip", zip);
     	source.put("address_country", "USA");
     		
