@@ -10,6 +10,9 @@ import java.nio.file.StandardOpenOption;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.text.WordUtils;
@@ -31,7 +34,7 @@ import org.json.simple.parser.JSONParser;
 /**
  * Output SQL Server insert statements for random users.
  */
-public class App {
+public class App implements Runnable {
 	private static final String URL_RANDOMUSER = "https://randomuser.me/api/?nat=us&results=%d";
 	private static final String STRIPE_PUBLIC_KEY = "sk_test_RxszT1p17bDnzd6CQPwM3Q8J";
 	private static final String STRIPE_CHARGE_URL = "https://api.stripe.com/v1/charges";
@@ -45,20 +48,33 @@ public class App {
 			"INSERT INTO dbo.stripe_log(request_date, request, response_date, response)"
 			+ " VALUES (GETDATE(), '%s', GETDATE(), '%s');";
 	private Integer amountOfUsersToCreate;
+	private String filePrefix;
 	
     public static void main( String[] args ) throws IOException {
     	//parse arguments
-    	int amountOfUsersToCreate = 1000;
+    	int amountOfUsersToCreate = 5000;
+    	int numThreads = 10;
     	if (args != null) {
     		if (args.length >= 1) {
     			amountOfUsersToCreate = Integer.valueOf(args[0]);
     		}
     	}
-    	new App(amountOfUsersToCreate).run();
+    	
+    	ExecutorService threadPool = Executors.newCachedThreadPool();
+    	for(int x = 0; x < numThreads; x++) {
+    		threadPool.execute(new App(amountOfUsersToCreate/numThreads, "thread" + x));
+    	}
+    	threadPool.shutdown();
+    	try {
+			threadPool.awaitTermination(Long.MAX_VALUE, TimeUnit.HOURS);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
     }
     
-    public App(Integer amountOfUsersToCreate) {
+    public App(Integer amountOfUsersToCreate, String filePrefix) {
     	this.amountOfUsersToCreate = amountOfUsersToCreate;
+    	this.filePrefix = filePrefix;
     }
     
     public void run() {
@@ -66,7 +82,7 @@ public class App {
         
         //create file for output
         String currentTimestamp = new SimpleDateFormat("yyyy-MM-dd-hh-mm").format(new Date());
-        String outputFileName = "random-users_" + currentTimestamp + "_" + amountOfUsersToCreate + ".sql";
+        String outputFileName = filePrefix + "_random-users_" + currentTimestamp + "_" + amountOfUsersToCreate + ".sql";
         Path outputFilePath = Paths.get("sql", outputFileName);
 
         try (BufferedWriter writer = Files.newBufferedWriter(outputFilePath, UTF8_CH, StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
@@ -75,6 +91,7 @@ public class App {
         	for(Object obj: users) {
         		JSONObject user = (JSONObject)((JSONObject)obj).get("user");
         		
+        		((JSONObject)user.get("location")).put("state", StateUtil.getByName(((JSONObject)user.get("location")).get("state").toString()));
 	        	//create random user
         			//http request to randomuser
 	        
@@ -121,6 +138,7 @@ public class App {
             HttpResponse result = httpClient.execute(request);
 
             String json = EntityUtils.toString(result.getEntity(), UTF8);
+            System.out.println(filePrefix + " Random user response: " + json);
             try {
                 JSONParser parser = new JSONParser();
                 Object resultObject = parser.parse(json);
