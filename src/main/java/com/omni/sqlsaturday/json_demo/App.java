@@ -60,6 +60,7 @@ public class App implements Runnable {
     		}
     	}
     	
+    	long startTime = System.currentTimeMillis();
     	ExecutorService threadPool = Executors.newCachedThreadPool();
     	for(int x = 0; x < numThreads; x++) {
     		threadPool.execute(new App(amountOfUsersToCreate/numThreads, "thread" + x));
@@ -70,6 +71,10 @@ public class App implements Runnable {
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
+    	
+    	long duration = System.currentTimeMillis()- startTime;
+    	String durationDisplay = (String.format("%d hr %d min, %d sec", duration/(1000*60*60), (duration%(1000*60*60))/(1000*60), ((duration%(1000*60*60))%(1000*60))/1000));
+    	System.out.print("Ran in " + durationDisplay);
     }
     
     public App(Integer amountOfUsersToCreate, String filePrefix) {
